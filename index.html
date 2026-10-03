@@ -689,14 +689,15 @@ function calcStars(base){ // base: 3,2,1 (正確さ) → ヒント・やり直�
   let s=base-Math.min(2,Q.hints>=3?2:Q.hints>=1?1:0)-(Q.tries>0?1:0);
   return Math.max(1,s);
 }
-function finishQ(st,id,html,good){
+function finishQ(st,id,html,good,more){
   Q.done=true; record(id,st); addScore(st);
   const p=$("#panel");
   const last=Q.i>=Q.list.length-1;
   p.innerHTML=`<div class="q-lab"><span>${Q.i+1} / ${Q.list.length}</span><span>${stars(st)}</span></div>
     <div class="res ${good?"good":"bad"}">${html}</div>
-    <div class="btns"><button class="btn ok" id="btnNext">${last?"けっかを見る ▶":"つぎへ ▶"}</button></div>`;
+    <div class="btns"><button class="btn ok" id="btnNext">${last?"けっかを見る ▶":"つぎへ ▶"}</button>${more?'<button class="btn" id="btnMore">📖 くわしく見る</button>':""}</div>`;
   $("#btnNext").onclick=()=>nextQuestion();
+  if(more) $("#btnMore").onclick=more;
   p.scrollTop=0;
 }
 
@@ -749,14 +750,10 @@ function revealPref(id,good){
   else if(sz<30) zoomTo(cx,cy,Math.min(4,FULL.w/(sz*4)));
   else if(sz>=30) resetView();
   const html=`<h4>${good?"🎉 せいかい！":"😢 ざんねん…こたえは"} 「${d.name}」</h4>
-    <div class="facts">
-     <div class="row"><span class="tag" style="background:${RC[d.region]}">${d.region}</span>県庁所在地：${d.cap}</div>
-     <div class="row" style="font-size:30px">${d.items.map(([e,l])=>`<span title="${l}">${e}</span>`).join(" ")}</div>
-     <div class="row">${d.items.map(([e,l])=>l).join("・")}</div>
-     <div class="row">${d.blurb}</div>
-     <div class="row" style="color:var(--sub)">人口 約${fmt(Math.floor(d.pop))}万人（全国${RANK_POP[id]}位）／面積 ${fmt(d.area)}km²（全国${RANK_AREA[id]}位）　※くわしくは次の画面で</div></div>`;
-  finishQ(st,id,html,good);
-  setTimeout(()=>showPrefCard(id,{good,next:()=>nextQuestion()}),good?650:900);
+    <div class="facts"><span class="tag" style="background:${RC[d.region]}">${d.region}</span>県庁所在地：${d.cap}</div>`;
+  const openCard=()=>showPrefCard(id,{good,next:()=>nextQuestion()});
+  finishQ(st,id,html,good,openCard);
+  openCard();
 }
 
 /* ===================== 山クイズ ===================== */
