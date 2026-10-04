@@ -312,6 +312,7 @@ const RIVERS = [
 const LS = { get(k,d){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):d }catch(e){return d} },
              set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)) }catch(e){} } };
 const settings = LS.get("nq_settings",{region:"全国",count:10,sound:true});
+if(settings.voice===undefined) settings.voice=true;
 const stats = LS.get("nq_stats",{pref:{},mt:{},river:{}});
 function saveAll(){ LS.set("nq_settings",settings); LS.set("nq_stats",stats); }
 
@@ -339,10 +340,30 @@ function tone(seq){
 }
 const sndOK=()=>tone([[660,.12],[880,.12],[1175,.22]]);
 const sndNG=()=>tone([[220,.18,"square"],[180,.22,"square"]]);
-function say(t){
-  if(!settings.sound||!("speechSynthesis" in window)) return;
-  try{ speechSynthesis.cancel(); const u=new SpeechSynthesisUtterance(t); u.lang="ja-JP"; u.rate=.95; speechSynthesis.speak(u);}catch(e){}
+let jaVoice=null;
+function pickVoice(){
+  if(!("speechSynthesis" in window)) return;
+  const vs=speechSynthesis.getVoices().filter(v=>/^ja/i.test(v.lang));
+  if(!vs.length) return;
+  const pref=["Kyoko","Otoya","O-Ren","Premium","Enhanced","Google 日本語","Microsoft Nanami","Microsoft Haruka"];
+  for(const p of pref){ const v=vs.find(v=>v.name.includes(p)); if(v){ jaVoice=v; return; } }
+  jaVoice=vs[0];
 }
+if("speechSynthesis" in window){ pickVoice(); speechSynthesis.onvoiceschanged=pickVoice; }
+// 文を短く区切って、語尾を下げて自然に聞こえるようにする。parts: [[文, ピッチ, 速さ], ...]
+function say(parts){
+  if(!settings.sound||!settings.voice||!("speechSynthesis" in window)) return;
+  if(typeof parts==="string") parts=[[parts,1,0.95]];
+  try{
+    speechSynthesis.cancel();
+    parts.forEach(([t,pitch,rate])=>{
+      const u=new SpeechSynthesisUtterance(t); u.lang="ja-JP"; if(jaVoice) u.voice=jaVoice;
+      u.pitch=pitch||1; u.rate=rate||0.95; speechSynthesis.speak(u);
+    });
+  }catch(e){}
+}
+const sayOK=name=>say([["正解です！",1.0,0.9],[name+"です。",1.0,0.95]]);
+const sayNG=name=>say([["ざんねん。",0.85,0.9],["答えは、"+name+"です。",1.0,0.95]]);
 
 /* ===================== 地図 ===================== */
 const svg = $("#map");
@@ -580,7 +601,7 @@ function renderHome(){
   });
   const sn=(k,l)=>{ const s=stats[k]||{}; return `${l}：${s.best!=null?"ベスト "+s.best+"点（"+s.plays+"回）":"まだ挑戦していません"}`; };
   $("#stats").innerHTML=["📍 "+sn("pref","都道府県"),"⛰️ "+sn("mt","山"),"🌊 "+sn("river","川")].join("<br>");
-  $("#btnSnd").textContent=settings.sound?"🔊":"🔇";
+  $("#btnSnd").textContent=sndIcon();
 }
 document.querySelectorAll(".mbtn").forEach(b=>b.onclick=()=>startMode(b.dataset.mode));
 let backArm=null;
@@ -591,7 +612,15 @@ $("#btnBack").onclick=()=>{
   b.textContent="もういちどでやめる"; toast("もういちどタップするとホームにもどるよ");
   backArm=setTimeout(()=>{ backArm=null; b.textContent="◀ もどる"; },2500);
 };
-$("#btnSnd").onclick=()=>{ settings.sound=!settings.sound; saveAll(); $("#btnSnd").textContent=settings.sound?"🔊":"🔇"; if(!settings.sound&&"speechSynthesis" in window) speechSynthesis.cancel(); else sndOK(); };
+function sndIcon(){ return !settings.sound?"🔇":settings.voice?"🔊":"🔔"; }
+$("#btnSnd").onclick=()=>{
+  if(settings.sound&&settings.voice){ settings.voice=false; toast("効果音だけにしました（音声読み上げなし）"); }
+  else if(settings.sound){ settings.sound=false; toast("音を消しました"); }
+  else { settings.sound=true; settings.voice=true; toast("効果音と音声読み上げをONにしました"); }
+  saveAll(); $("#btnSnd").textContent=sndIcon();
+  if(!(settings.sound&&settings.voice)&&"speechSynthesis" in window) speechSynthesis.cancel();
+  if(settings.sound) sndOK();
+};
 function goHome(){ $("#btnBack").textContent="◀ もどる"; tapHandler=null; curMode=null; renderHome(); show("home"); }
 
 /* ===================== クイズ共通 ===================== */
@@ -753,7 +782,7 @@ function revealPref(id,good){
   const [cx,cy,sz]=bboxCenter([id]);
   if(!good){ const c=el("circle",{cx,cy,r:Math.max(5,sz*0.75),fill:"none",stroke:"#e8574f","stroke-width":"1.6",class:"pulse"},gOv); }
   const st=good?calcStars(3):0;
-  if(good){ sndOK(); say(d.name+"、せいかい"); } else { sndNG(); say("こたえは、"+d.name); }
+  if(good){ sndOK(); sayOK(d.name); } else { sndNG(); sayNG(d.name); }
   // 小さい県は拡大して見せる
   if(+id===47) zoomTo(cx,cy,2.4);
   else if(sz<30) zoomTo(cx,cy,Math.min(4,FULL.w/(sz*4)));
@@ -804,7 +833,7 @@ function revealMt(i,tap){
     const km=Math.round(tap.dd/PX.scale*111/1);
     head= good?`🎉 せいかい！ 「${m[0]}」`:`😢 おしい！ 「${m[0]}」はここだよ（約${fmt(Math.round(km/10)*10)}kmはなれていたよ）`;
   } else head=`😢 こたえは 「${m[0]}」`;
-  if(good){ sndOK(); say(m[0]+"、せいかい"); } else { sndNG(); say("こたえは、"+m[0]); }
+  if(good){ sndOK(); sayOK(m[0]); } else { sndNG(); sayNG(m[0]); }
   const html=`<h4>${head}</h4><div class="facts">
     <div class="row"><span class="tag" style="background:#d9efd2">標高 ${fmt(m[2])}m</span>${m[5].map(id=>P[id].name).join("・")}</div>
     <div class="row">${m[7]}</div></div>`;
@@ -853,7 +882,7 @@ function revealRiver(i,tap){
     if(rr<=1){ good=true; st=calcStars(rr<=.4?3:rr<=.75?2:1); }
     head=good?`🎉 せいかい！ 「${r[0]}」`:`😢 おしい！ 「${r[0]}」はこの青い線だよ`;
   } else head=`😢 こたえは 「${r[0]}」`;
-  if(good){ sndOK(); say(r[0]+"、せいかい"); } else { sndNG(); say("こたえは、"+r[0]); }
+  if(good){ sndOK(); sayOK(r[0]); } else { sndNG(); sayNG(r[0]); }
   const [lo,la]=[0,0]; // dummy
   const xs=r.pts.map(p=>p[0]), ys=r.pts.map(p=>p[1]);
   const cx=(Math.min(...xs)+Math.max(...xs))/2, cy=(Math.min(...ys)+Math.max(...ys))/2, sz=Math.max(Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys));
