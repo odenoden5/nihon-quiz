@@ -135,12 +135,12 @@ svg#map{position:absolute;inset:0;width:100%;height:100%;touch-action:none;displ
 .lst div:last-child{border:0}
 
 /* 地図スタイル */
-.pref{stroke:#fff;stroke-width:1.2px;vector-effect:non-scaling-stroke;stroke-linejoin:round;transition:fill .25s,opacity .25s;cursor:pointer}
-.pref.un{fill:#f7fafc;stroke:#8fa3b1;stroke-width:1px}
-.pref.oki{stroke:#6aa9d0;stroke-dasharray:5 3}
+.pref{stroke:#fff;stroke-width:var(--sw1,.6);stroke-linejoin:round;transition:fill .25s,opacity .25s;cursor:pointer}
+.pref.un{fill:#f7fafc;stroke:#8fa3b1;stroke-width:var(--sw2,.5)}
+.pref.oki{stroke:#6aa9d0;stroke-dasharray:3 2}
 .pref.oki.un{fill:#e4f1f9}
 #gScore:empty{display:none}
-.pref.hl{stroke:#ff8a00;stroke-width:3px}
+.pref.hl{stroke:#ff8a00;stroke-width:var(--sw3,1.5)}
 .pref.dim{opacity:.55}
 .pref.pop{animation:pop .5s}
 .pref.flash{animation:flash .7s}
@@ -390,16 +390,22 @@ function buildMap(){
   setVB();
 }
 
+let scTimer=null, lastW=0;
 function setVB(){
   svg.setAttribute("viewBox",`${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
-  const z=FULL.w/vb.w;
-  svg.classList.toggle("z2",z>=1.8);
-  svg.dataset.z=z;
-  updateScaling();
+  if(Math.abs(vb.w-lastW)>1e-6){           // 倍率が変わったときだけ、止まってから文字などを更新
+    lastW=vb.w; clearTimeout(scTimer); scTimer=setTimeout(updateScaling,90);
+  }
 }
+window.addEventListener("resize",()=>{ lastW=0; setVB(); });
 // 拡大しても文字・マーカーの画面上の大きさをほぼ一定にする(県境を隠さない)
 function updateScaling(){
   const k=ppu(); if(!k||!(k>0.05)) return;
+  const z=FULL.w/vb.w;
+  svg.classList.toggle("z2",z>=1.8);
+  svg.style.setProperty("--sw1",(1.1/k).toFixed(3));
+  svg.style.setProperty("--sw2",(0.9/k).toFixed(3));
+  svg.style.setProperty("--sw3",(2.6/k).toFixed(3));
   for(const id in lblEl){
     const t=lblEl[id], o=+t.dataset.fs, f=Math.min(o,11.5/k);
     t.setAttribute("font-size",f.toFixed(2)); t.style.strokeWidth=(f*0.22).toFixed(2);
@@ -437,15 +443,18 @@ function zoomTo(x,y,z){ vb.w=FULL.w/z; vb.h=FULL.h/z; vb.x=x-vb.w/2; vb.y=y-vb.h
 // ポインタ操作 (ドラッグ=移動、ピンチ=拡大縮小、タップ=回答)
 const ptrs=new Map(); let tapInfo=null, lastPinch=null;
 svg.addEventListener("pointerdown",e=>{
-  ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  const now=Date.now(); for(const [id,v] of ptrs) if(now-v.t>4000) ptrs.delete(id);
+  try{ svg.setPointerCapture(e.pointerId); }catch(_){}
+  ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY,t:now});
   if(ptrs.size===1) tapInfo={x:e.clientX,y:e.clientY,t:Date.now(),moved:false,multi:false};
   else { if(tapInfo) tapInfo.multi=true; lastPinch=null; }
 });
 svg.addEventListener("pointermove",e=>{
   const p=ptrs.get(e.pointerId); if(!p) return;
+  p.t=Date.now();
   const dx=e.clientX-p.x, dy=e.clientY-p.y;
   if(ptrs.size===1){
-    if(tapInfo && !tapInfo.moved && Math.hypot(e.clientX-tapInfo.x,e.clientY-tapInfo.y)>8) tapInfo.moved=true;
+    if(tapInfo && !tapInfo.moved && Math.hypot(e.clientX-tapInfo.x,e.clientY-tapInfo.y)>12) tapInfo.moved=true;
     if(tapInfo && tapInfo.moved){
       const k=ppu(); vb.x-=dx/k; vb.y-=dy/k; clampVB(); setVB();
     }
@@ -470,7 +479,7 @@ function endPtr(e){
   if(ptrs.size<2) lastPinch=null;
   if(ptrs.size===0 && tapInfo){
     const ti=tapInfo; tapInfo=null;
-    if(e.type==="pointerup" && !ti.moved && !ti.multi && Date.now()-ti.t<800){
+    if(e.type==="pointerup" && !ti.moved && !ti.multi && Date.now()-ti.t<2000){
       const [sx,sy]=clientToSvg(e.clientX,e.clientY);
       curEls=document.elementsFromPoint(e.clientX,e.clientY);
       onTap(sx,sy,curEls[0]);
